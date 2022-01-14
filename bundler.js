@@ -32,17 +32,16 @@ function createGraph(entry) {
         const asset = createAsset(filepath);
         const { id, deps } = asset;
         const dirname = path.dirname(filepath);
+        asset.mapping = {};
         graph[id] = asset;
-        graph[id].mapping = {};
-        if (id) {
-            graph[id - 1].mapping[filepath] = id;
-        }
+
         if (!deps.length) {
             return;
         }
 
-        deps.forEach((child) => {
-            const abspath = path.join(dirname, child);
+        deps.forEach((childpath) => {
+            asset.mapping = childpath;
+            const abspath = path.join(dirname, childpath);
             fillGraph(abspath);
         });
     };
