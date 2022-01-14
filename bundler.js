@@ -28,19 +28,25 @@ function createAsset(filename) {
 
 function createGraph(entry) {
     const graph = {};
-    const buildDepsGraph = (entryPoint) => {
-        const asset = createAsset(entryPoint);
-        const { id, deps, filename } = asset;
-        const dirname = path.dirname(filename);
+    const fillGraph = (filepath) => {
+        const asset = createAsset(filepath);
+        const { id, deps } = asset;
+        const dirname = path.dirname(filepath);
+        graph[id] = asset;
+        graph[id].mapping = {};
+        if (id) {
+            graph[id - 1].mapping[filepath] = id;
+        }
         if (!deps.length) {
             return;
         }
-        graph[id] = asset;
+
         deps.forEach((child) => {
-            buildDepsGraph(path.join(dirname, child));
+            const abspath = path.join(dirname, child);
+            fillGraph(abspath);
         });
     };
-    buildDepsGraph(entry);
+    fillGraph(entry);
     return graph;
 }
 console.log(createGraph("deps/entry.js"));
