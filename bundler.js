@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
-import { parse } from "acorn";
+import babelParser from "@babel/parser";
 import _traverse from "@babel/traverse";
+import { transformFromAst } from "@babel/core";
 import path from "node:path";
 
 const traverse = _traverse.default;
@@ -8,9 +9,8 @@ const traverse = _traverse.default;
 let ID = 0;
 function createAsset(filename) {
     const content = readFileSync(filename, "utf-8");
-    const ast = parse(content, {
+    const ast = babelParser.parse(content, {
         sourceType: "module",
-        ecmaVersion: "latest",
     });
     const deps = [];
     traverse(ast, {
@@ -18,34 +18,71 @@ function createAsset(filename) {
             deps.push(node.source.value);
         },
     });
+    const { code } = transformFromAst(ast, null, {
+        presets: ["@babel/env"],
+    });
+
     const id = ID++;
     return {
         id,
         filename,
         deps,
+        code,
     };
 }
 
 function createGraph(entry) {
-    const graph = {};
-    const fillGraph = (filepath) => {
-        const asset = createAsset(filepath);
-        const { id, deps } = asset;
-        const dirname = path.dirname(filepath);
+    const mainAsset = createAsset(entry);
+
+    const graph = [mainAsset];
+
+    for (const asset of graph) {
         asset.mapping = {};
-        graph[id] = asset;
+        const { filename, deps } = asset;
+        const dirname = path.dirname(filename);
 
-        if (!deps.length) {
-            return;
-        }
+        deps.forEach((relativePath) => {
+            const absolutePath = path.join(dirname, relativePath);
 
-        deps.forEach((childpath) => {
-            asset.mapping = childpath;
-            const abspath = path.join(dirname, childpath);
-            fillGraph(abspath);
+            const child = createAsset(absolutePath);
+
+            asset.mapping[relativePath] = child.id;
+
+            graph.push(child);
         });
-    };
-    fillGraph(entry);
+    }
+
     return graph;
 }
-console.log(createGraph("deps/entry.js"));
+
+function bundle(graph) {
+    let modules = "";
+    graph.forEach((mod) => {
+        modules += `${mod.id}: [
+            function (require, module, exports) {
+              ${mod.code}
+            },
+            ${JSON.stringify(mod.mapping)},
+          ],`;
+    });
+    const result = `
+    (function(modules){
+        function require(id){
+            const [fn, mapping] = modules[id];
+
+            function localRequire(name){
+                return require(mapping[name])
+            };
+            const module = { exports: {} };
+            fn(localRequire, module, module.exports);
+            return module.exports;
+        }
+        require(0);
+    })({${modules}})
+`;
+    return result;
+}
+
+const graph = createGraph("deps/entry.js");
+const result = bundle(graph);
+console.log(result);
